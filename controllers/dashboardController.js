@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const LoyaltyPoints = require('../models/LoyaltyPoints');
-const Transaction = require('../models/Transaction');
+const LoyaltyTransaction = require('../models/Transaction');
 const { HTTP_STATUS_CODE } = require('../utils/httpStatus');
 
 // Get User Dashboard Analytics
@@ -30,24 +30,24 @@ const getUserDashboard = async (req, res) => {
       }
       
       dateFilter = {
-        createdAt: {
+        created_at: {
           [Op.gte]: startDate
         }
       };
     }
 
     // Get all transactions for this user
-    const transactions = await Transaction.findAll({
+    const transactions = await LoyaltyTransaction.findAll({
       where: {
-        userId,
+        user_id: userId,
         ...dateFilter
       },
-      order: [['createdAt', 'DESC']]
+      order: [['created_at', 'DESC']]
     });
 
     // Get loyalty points record for this user
     const loyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId }
+      where: { user_id: userId }
     });
 
     // Calculate analytics
@@ -65,9 +65,9 @@ const getUserDashboard = async (req, res) => {
 
     // Calculate from transactions
     transactions.forEach(transaction => {
-      const pointsAmount = parseFloat(transaction.pointsAmount || 0);
+      const pointsAmount = parseFloat(transaction.points_amount || 0);
       
-      switch (transaction.transactionType) {
+      switch (transaction.transaction_type) {
         case 'issue':
           analytics.totalPointsIssued += pointsAmount;
           break;
@@ -88,7 +88,7 @@ const getUserDashboard = async (req, res) => {
 
     // Get current points from loyalty points record
     if (loyaltyPoints) {
-      analytics.totalPointsAvailable = parseFloat(loyaltyPoints.pointsAvailable || 0);
+      analytics.totalPointsAvailable = parseFloat(loyaltyPoints.points_available || 0);
     }
 
     res.status(HTTP_STATUS_CODE.OK).json({
@@ -132,24 +132,24 @@ const getSystemAnalytics = async (req, res) => {
       }
       
       dateFilter = {
-        createdAt: {
+        created_at: {
           [Op.gte]: startDate
         }
       };
     }
 
     // Get system-wide statistics
-    const totalTransactions = await Transaction.count({
+    const totalTransactions = await LoyaltyTransaction.count({
       where: dateFilter
     });
 
-    const totalLoyaltyPoints = await LoyaltyPoints.sum('pointsAvailable', {
+    const totalLoyaltyPoints = await LoyaltyPoints.sum('points_available', {
       where: dateFilter
     });
 
     const totalUsers = await LoyaltyPoints.count({
       distinct: true,
-      col: 'userId',
+      col: 'user_id',
       where: dateFilter
     });
 

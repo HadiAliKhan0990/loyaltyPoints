@@ -1,0 +1,23 @@
+services:
+  loyalty-points-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: loyalty-points-system
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    env_file:
+      - .env
+    environment:
+      - PORT=3005
+      - NODE_ENV=production
+      - AUTH_KEY=${AUTH_KEY}
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - loyalty-network
+
+networks:
+  loyalty-network:
+    driver: bridge

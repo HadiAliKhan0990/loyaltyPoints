@@ -1,11 +1,13 @@
 'use strict';
 
 const LoyaltyPoints = require('./LoyaltyPoints');
-const Transaction = require('./Transaction');
+const LoyaltyTransaction = require('./Transaction');
+const PointSchema = require('./PointSchema');
 
 const db = {
   LoyaltyPoints,
-  Transaction
+  LoyaltyTransaction,
+  PointSchema
 };
 
 module.exports = db;
