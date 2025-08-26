@@ -11,10 +11,12 @@ app.use(express.urlencoded({ extended: true }));
 // Import routes
 const pointsRoutes = require('./routes/pointsRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const configurationRoutes = require('./routes/configurationRoutes');
 
 // Route middleware
 app.use('/api/points', pointsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/configuration', configurationRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
