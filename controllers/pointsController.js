@@ -1,7 +1,7 @@
 const { validationResult } = require('express-validator');
 const QRCode = require('qrcode');
 const LoyaltyPoints = require('../models/LoyaltyPoints');
-const Transaction = require('../models/Transaction');
+const LoyaltyTransaction = require('../models/Transaction');
 const { HTTP_STATUS_CODE } = require('../utils/httpStatus');
 
 // Generate unique transaction ID
@@ -21,36 +21,36 @@ const issuePoints = async (req, res) => {
       });
     }
 
-    const { customerUserId, pointsAmount, cashAmount, description } = req.body;
+    const { customer_user_id, points_amount, cash_amount, description } = req.body;
 
     // Create transaction
-    const transaction = await Transaction.create({
-      transactionId: generateTransactionId(),
-      userId: customerUserId,
-      transactionType: 'issue',
-      pointsAmount,
-      cashAmount: cashAmount || 0,
+    const transaction = await LoyaltyTransaction.create({
+      transaction_id: generateTransactionId(),
+      user_id: customer_user_id,
+      transaction_type: 'issue',
+      points_amount: points_amount,
+      cash_amount: cash_amount || 0,
       description: description || `Points issued`,
       status: 'completed'
     });
 
     // Update or create loyalty points record
     let loyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId: customerUserId }
+      where: { user_id: customer_user_id }
     });
 
     if (loyaltyPoints) {
       await loyaltyPoints.update({
-        pointsIssued: parseFloat(loyaltyPoints.pointsIssued) + pointsAmount,
-        pointsAvailable: parseFloat(loyaltyPoints.pointsAvailable) + pointsAmount,
-        lastUpdated: new Date()
+        points_issued: parseFloat(loyaltyPoints.points_issued) + points_amount,
+        points_available: parseFloat(loyaltyPoints.points_available) + points_amount,
+        last_updated: new Date()
       });
     } else {
       loyaltyPoints = await LoyaltyPoints.create({
-        userId: customerUserId,
-        pointsIssued: pointsAmount,
-        pointsAvailable: pointsAmount,
-        lastUpdated: new Date()
+        user_id: customer_user_id,
+        points_issued: points_amount,
+        points_available: points_amount,
+        last_updated: new Date()
       });
     }
 
@@ -59,8 +59,8 @@ const issuePoints = async (req, res) => {
       status_msg: 'Points issued successfully',
       data: {
         transaction,
-        loyaltyPoints,
-        pointsIssued: pointsAmount
+        loyalty_points: loyaltyPoints,
+        points_issued: points_amount
       }
     });
   } catch (error) {
@@ -85,15 +85,15 @@ const redeemPoints = async (req, res) => {
       });
     }
 
-    const { pointsToRedeem, qrCodeData } = req.body;
+    const { points_to_redeem, qr_code_data } = req.body;
     const userId = req.user.user_id;
 
     // Find loyalty points record
     const loyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId }
+      where: { user_id: userId }
     });
 
-    if (!loyaltyPoints || parseFloat(loyaltyPoints.pointsAvailable) < pointsToRedeem) {
+    if (!loyaltyPoints || parseFloat(loyaltyPoints.points_available) < points_to_redeem) {
       return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
         status: false,
         status_msg: 'Insufficient points available for redemption',
@@ -102,21 +102,21 @@ const redeemPoints = async (req, res) => {
     }
 
     // Create transaction
-    const transaction = await Transaction.create({
-      transactionId: generateTransactionId(),
-      userId,
-      transactionType: 'redeem',
-      pointsAmount: pointsToRedeem,
+    const transaction = await LoyaltyTransaction.create({
+      transaction_id: generateTransactionId(),
+      user_id: userId,
+      transaction_type: 'redeem',
+      points_amount: points_to_redeem,
       description: `Points redeemed from TownTicks platform`,
-      qrCodeData,
+      qr_code_data: qr_code_data,
       status: 'completed'
     });
 
     // Update loyalty points
     await loyaltyPoints.update({
-      pointsRedeemed: parseFloat(loyaltyPoints.pointsRedeemed) + pointsToRedeem,
-      pointsAvailable: parseFloat(loyaltyPoints.pointsAvailable) - pointsToRedeem,
-      lastUpdated: new Date()
+      points_redeemed: parseFloat(loyaltyPoints.points_redeemed) + points_to_redeem,
+      points_available: parseFloat(loyaltyPoints.points_available) - points_to_redeem,
+      last_updated: new Date()
     });
 
     res.status(HTTP_STATUS_CODE.OK).json({
@@ -124,8 +124,8 @@ const redeemPoints = async (req, res) => {
       status_msg: 'Points redeemed successfully',
       data: {
         transaction,
-        loyaltyPoints,
-        pointsRedeemed: pointsToRedeem
+        loyalty_points: loyaltyPoints,
+        points_redeemed: points_to_redeem
       }
     });
   } catch (error) {
@@ -150,15 +150,15 @@ const giftPoints = async (req, res) => {
       });
     }
 
-    const { pointsToGift, recipientUserId } = req.body;
+    const { points_to_gift, recipient_user_id } = req.body;
     const senderUserId = req.user.user_id;
 
     // Check sender's points
     let senderLoyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId: senderUserId }
+      where: { user_id: senderUserId }
     });
 
-    if (!senderLoyaltyPoints || parseFloat(senderLoyaltyPoints.pointsAvailable) < pointsToGift) {
+    if (!senderLoyaltyPoints || parseFloat(senderLoyaltyPoints.points_available) < points_to_gift) {
       return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
         status: false,
         status_msg: 'Insufficient points available for gifting',
@@ -167,40 +167,40 @@ const giftPoints = async (req, res) => {
     }
 
     // Create gift transaction
-    const transaction = await Transaction.create({
-      transactionId: generateTransactionId(),
-      userId: senderUserId,
-      transactionType: 'gift',
-      pointsAmount: pointsToGift,
-      description: `Points gifted to user ${recipientUserId}`,
-      recipientUserId,
+    const transaction = await LoyaltyTransaction.create({
+      transaction_id: generateTransactionId(),
+      user_id: senderUserId,
+      transaction_type: 'gift',
+      points_amount: points_to_gift,
+      description: `Points gifted to user ${recipient_user_id}`,
+      recipient_user_id: recipient_user_id,
       status: 'completed'
     });
 
     // Update sender's points
     await senderLoyaltyPoints.update({
-      pointsGifted: parseFloat(senderLoyaltyPoints.pointsGifted) + pointsToGift,
-      pointsAvailable: parseFloat(senderLoyaltyPoints.pointsAvailable) - pointsToGift,
-      lastUpdated: new Date()
+      points_gifted: parseFloat(senderLoyaltyPoints.points_gifted) + points_to_gift,
+      points_available: parseFloat(senderLoyaltyPoints.points_available) - points_to_gift,
+      last_updated: new Date()
     });
 
     // Update or create recipient's points
     let recipientLoyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId: recipientUserId }
+      where: { user_id: recipient_user_id }
     });
 
     if (recipientLoyaltyPoints) {
       await recipientLoyaltyPoints.update({
-        pointsIssued: parseFloat(recipientLoyaltyPoints.pointsIssued) + pointsToGift,
-        pointsAvailable: parseFloat(recipientLoyaltyPoints.pointsAvailable) + pointsToGift,
-        lastUpdated: new Date()
+        points_issued: parseFloat(recipientLoyaltyPoints.points_issued) + points_to_gift,
+        points_available: parseFloat(recipientLoyaltyPoints.points_available) + points_to_gift,
+        last_updated: new Date()
       });
     } else {
       recipientLoyaltyPoints = await LoyaltyPoints.create({
-        userId: recipientUserId,
-        pointsIssued: pointsToGift,
-        pointsAvailable: pointsToGift,
-        lastUpdated: new Date()
+        user_id: recipient_user_id,
+        points_issued: points_to_gift,
+        points_available: points_to_gift,
+        last_updated: new Date()
       });
     }
 
@@ -209,9 +209,9 @@ const giftPoints = async (req, res) => {
       status_msg: 'Points gifted successfully',
       data: {
         transaction,
-        senderPoints: senderLoyaltyPoints,
-        recipientPoints: recipientLoyaltyPoints,
-        pointsGifted: pointsToGift
+        sender_points: senderLoyaltyPoints,
+        recipient_points: recipientLoyaltyPoints,
+        points_gifted: points_to_gift
       }
     });
   } catch (error) {
@@ -227,23 +227,23 @@ const giftPoints = async (req, res) => {
 // Get User Points Summary
 const getUserPoints = async (req, res) => {
   try {
-    const userId = req.user.user_id;
-
+    const userId = req.params.userId;
+    
     const loyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId }
+      where: { user_id: userId }
     });
 
     res.status(HTTP_STATUS_CODE.OK).json({
       status: true,
       status_msg: 'User points retrieved successfully',
       data: loyaltyPoints || {
-        userId,
-        pointsIssued: 0,
-        pointsRedeemed: 0,
-        pointsTransferred: 0,
-        pointsGifted: 0,
-        pointsExpired: 0,
-        pointsAvailable: 0
+        user_id: userId,
+        points_issued: 0,
+        points_redeemed: 0,
+        points_transferred: 0,
+        points_gifted: 0,
+        points_expired: 0,
+        points_available: 0
       }
     });
   } catch (error) {
@@ -268,26 +268,26 @@ const generateQRCode = async (req, res) => {
       });
     }
 
-    const { pointsAmount } = req.body;
+    const { points_amount } = req.body;
     const userId = req.user.user_id;
 
     // Create QR code data
     const qrData = {
-      userId,
-      pointsAmount,
+      user_id: userId,
+      points_amount: points_amount,
       timestamp: Date.now()
     };
 
-    const qrCodeData = JSON.stringify(qrData);
-    const qrCodeImage = await QRCode.toDataURL(qrCodeData);
+    const qr_code_data = JSON.stringify(qrData);
+    const qr_code_image = await QRCode.toDataURL(qr_code_data);
 
     res.status(HTTP_STATUS_CODE.OK).json({
       status: true,
       status_msg: 'QR code generated successfully',
       data: {
-        qrCodeData,
-        qrCodeImage,
-        pointsAmount
+        qr_code_data,
+        qr_code_image,
+        points_amount
       }
     });
   } catch (error) {

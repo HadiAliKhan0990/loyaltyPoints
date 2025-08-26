@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+README.md
+notes.md
+*.md
+.vscode
+.idea
+*.log
+.DS_Store
+cleanup-all.ps1
+install-node-modules.ps1
+api documentation curl.md
+DEPLOYMENT_FIX_AUTH.md

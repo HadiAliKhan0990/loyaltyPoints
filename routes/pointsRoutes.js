@@ -8,15 +8,20 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(verifyToken);
 
+/**
+ * NOTE: All fields use snake_case naming convention
+ * Database tables: Loyalty_Points, Loyalty_Transaction, Point_Schema
+ */
+
 // Validation rules
 const issuePointsValidation = [
-  body('customerUserId')
+  body('customer_user_id')
     .isInt({ min: 1 })
     .withMessage('Customer user ID must be a positive integer'),
-  body('pointsAmount')
+  body('points_amount')
     .isFloat({ min: 0 })
     .withMessage('Points amount must be a positive number'),
-  body('cashAmount')
+  body('cash_amount')
     .optional()
     .isFloat({ min: 0 })
     .withMessage('Cash amount must be a positive number'),
@@ -27,26 +32,26 @@ const issuePointsValidation = [
 ];
 
 const redeemPointsValidation = [
-  body('pointsToRedeem')
+  body('points_to_redeem')
     .isFloat({ min: 0 })
     .withMessage('Points to redeem must be a positive number'),
-  body('qrCodeData')
+  body('qr_code_data')
     .optional()
     .isString()
     .withMessage('QR code data must be a string')
 ];
 
 const giftPointsValidation = [
-  body('pointsToGift')
+  body('points_to_gift')
     .isFloat({ min: 0 })
     .withMessage('Points to gift must be a positive number'),
-  body('recipientUserId')
+  body('recipient_user_id')
     .isInt({ min: 1 })
     .withMessage('Recipient user ID must be a positive integer')
 ];
 
 const generateQRCodeValidation = [
-  body('pointsAmount')
+  body('points_amount')
     .isFloat({ min: 0 })
     .withMessage('Points amount must be a positive number')
 ];
@@ -63,7 +68,7 @@ router.post('/redeem', redeemPointsValidation, pointsController.redeemPoints);
 router.post('/gift', giftPointsValidation, pointsController.giftPoints);
 
 // Get User Points Summary
-router.get('/user/points', pointsController.getUserPoints);
+router.get('/user/points/:userId', pointsController.getUserPoints);
 
 // Generate QR Code for Redemption
 router.post('/generate-qr', generateQRCodeValidation, pointsController.generateQRCode);
