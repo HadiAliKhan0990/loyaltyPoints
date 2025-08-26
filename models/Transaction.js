@@ -16,17 +16,8 @@ const Transaction = sequelize.define('Transaction', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
-  businessUserId: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    comment: 'For business-related transactions, this is the business user ID'
-  },
   transactionType: {
     type: DataTypes.ENUM('issue', 'redeem', 'gift', 'transfer', 'import', 'export', 'expire'),
-    allowNull: false
-  },
-  poolType: {
-    type: DataTypes.ENUM('townTicks', 'business'),
     allowNull: false
   },
   pointsAmount: {

@@ -11,16 +11,6 @@ const LoyaltyPoints = sequelize.define('LoyaltyPoints', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
-  poolType: {
-    type: DataTypes.ENUM('townTicks', 'business'),
-    allowNull: false,
-    defaultValue: 'townTicks'
-  },
-  businessUserId: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    comment: 'For business pool, this is the business user ID'
-  },
   pointsIssued: {
     type: DataTypes.DECIMAL(15, 2),
     defaultValue: 0.00

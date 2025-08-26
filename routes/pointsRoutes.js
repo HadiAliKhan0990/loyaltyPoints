@@ -23,19 +23,13 @@ const issuePointsValidation = [
   body('description')
     .optional()
     .isString()
-    .withMessage('Description must be a string'),
-  body('poolType')
-    .isIn(['townTicks', 'business'])
-    .withMessage('Pool type must be either townTicks or business')
+    .withMessage('Description must be a string')
 ];
 
 const redeemPointsValidation = [
   body('pointsToRedeem')
     .isFloat({ min: 0 })
     .withMessage('Points to redeem must be a positive number'),
-  body('poolType')
-    .isIn(['townTicks', 'business'])
-    .withMessage('Pool type must be either townTicks or business'),
   body('qrCodeData')
     .optional()
     .isString()
@@ -51,33 +45,10 @@ const giftPointsValidation = [
     .withMessage('Recipient user ID must be a positive integer')
 ];
 
-const transferPointsValidation = [
-  body('pointsAmount')
-    .isFloat({ min: 0 })
-    .withMessage('Points amount must be a positive number'),
-  body('fromPoolType')
-    .isIn(['townTicks', 'business'])
-    .withMessage('From pool type must be either townTicks or business'),
-  body('toPoolType')
-    .isIn(['townTicks', 'business'])
-    .withMessage('To pool type must be either townTicks or business'),
-  body('businessUserId')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Business user ID must be a positive integer')
-];
-
 const generateQRCodeValidation = [
   body('pointsAmount')
     .isFloat({ min: 0 })
-    .withMessage('Points amount must be a positive number'),
-  body('poolType')
-    .isIn(['townTicks', 'business'])
-    .withMessage('Pool type must be either townTicks or business'),
-  body('businessUserId')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Business user ID must be a positive integer')
+    .withMessage('Points amount must be a positive number')
 ];
 
 // Routes
@@ -88,11 +59,8 @@ router.post('/issue', issuePointsValidation, pointsController.issuePoints);
 // Redeem Points
 router.post('/redeem', redeemPointsValidation, pointsController.redeemPoints);
 
-// Gift Points (TownTicks pool only)
+// Gift Points (TownTicks platform only)
 router.post('/gift', giftPointsValidation, pointsController.giftPoints);
-
-// Transfer Points between pools
-router.post('/transfer', transferPointsValidation, pointsController.transferPoints);
 
 // Get User Points Summary
 router.get('/user/points', pointsController.getUserPoints);
