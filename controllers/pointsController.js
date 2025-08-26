@@ -2,8 +2,6 @@ const { validationResult } = require('express-validator');
 const QRCode = require('qrcode');
 const LoyaltyPoints = require('../models/LoyaltyPoints');
 const Transaction = require('../models/Transaction');
-const Business = require('../models/Business');
-const LoyaltyProgram = require('../models/LoyaltyProgram');
 const { HTTP_STATUS_CODE } = require('../utils/httpStatus');
 
 // Generate unique transaction ID
@@ -11,7 +9,7 @@ const generateTransactionId = () => {
   return 'TXN_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 };
 
-// Issue Points (Business to Customer)
+// Issue Points (Business user to Customer)
 const issuePoints = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -23,70 +21,44 @@ const issuePoints = async (req, res) => {
       });
     }
 
-    const { customerEmail, pointsAmount, cashAmount, description } = req.body;
-    const businessId = req.params.businessId;
-
-    // Verify business exists and user has access
-    const business = await Business.findByPk(businessId);
-    if (!business || business.userId !== req.user.user_id) {
-      return res.status(HTTP_STATUS_CODE.FORBIDDEN).json({
-        status: false,
-        status_msg: 'Access denied',
-        data: undefined
-      });
-    }
-
-    // Get loyalty program configuration
-    const loyaltyProgram = await LoyaltyProgram.findOne({ where: { businessId } });
-    if (!loyaltyProgram || !loyaltyProgram.issuePoints) {
-      return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
-        status: false,
-        status_msg: 'Point issuance is not enabled for this business',
-        data: undefined
-      });
-    }
-
-    // Note: Customer lookup would be done via parent database
-    // For now, we'll use the customer email as identifier
-    const customerUserId = req.body.customerUserId; // This should come from parent database
-
-    // Calculate points based on loyalty program configuration
-    let calculatedPoints = pointsAmount;
-    if (loyaltyProgram.loyaltyCalculationType === 'percentage') {
-      calculatedPoints = (cashAmount * loyaltyProgram.defaultPointsValue) / 100;
-    }
+    const { customerUserId, pointsAmount, cashAmount, description, poolType } = req.body;
+    const businessUserId = req.user.user_id; // Business user issuing points
 
     // Create transaction
     const transaction = await Transaction.create({
       transactionId: generateTransactionId(),
       userId: customerUserId,
-      businessId,
+      businessUserId: poolType === 'business' ? businessUserId : null,
       transactionType: 'issue',
-      poolType: 'individualBusiness',
-      pointsAmount: calculatedPoints,
-      cashAmount,
-      description: description || `Points issued by ${business.businessName}`,
+      poolType,
+      pointsAmount,
+      cashAmount: cashAmount || 0,
+      description: description || `Points issued`,
       status: 'completed'
     });
 
     // Update or create loyalty points record
     let loyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId: customerUserId, businessId, poolType: 'individualBusiness' }
+      where: { 
+        userId: customerUserId, 
+        poolType,
+        businessUserId: poolType === 'business' ? businessUserId : null
+      }
     });
 
     if (loyaltyPoints) {
       await loyaltyPoints.update({
-        pointsIssued: parseFloat(loyaltyPoints.pointsIssued) + calculatedPoints,
-        pointsAvailable: parseFloat(loyaltyPoints.pointsAvailable) + calculatedPoints,
+        pointsIssued: parseFloat(loyaltyPoints.pointsIssued) + pointsAmount,
+        pointsAvailable: parseFloat(loyaltyPoints.pointsAvailable) + pointsAmount,
         lastUpdated: new Date()
       });
     } else {
       loyaltyPoints = await LoyaltyPoints.create({
         userId: customerUserId,
-        businessId,
-        poolType: 'individualBusiness',
-        pointsIssued: calculatedPoints,
-        pointsAvailable: calculatedPoints,
+        poolType,
+        businessUserId: poolType === 'business' ? businessUserId : null,
+        pointsIssued: pointsAmount,
+        pointsAvailable: pointsAmount,
         lastUpdated: new Date()
       });
     }
@@ -97,20 +69,20 @@ const issuePoints = async (req, res) => {
       data: {
         transaction,
         loyaltyPoints,
-        calculatedPoints
+        pointsIssued: pointsAmount
       }
     });
   } catch (error) {
-    console.error('Issue points error:', error);
+    console.error('Error issuing points:', error);
     res.status(HTTP_STATUS_CODE.INTERNAL_SERVER_ERROR).json({
       status: false,
-      status_msg: 'Internal server error',
+      status_msg: 'Failed to issue points',
       data: undefined
     });
   }
 };
 
-// Redeem Points (Screen 167 - Business User)
+// Redeem Points
 const redeemPoints = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -122,55 +94,35 @@ const redeemPoints = async (req, res) => {
       });
     }
 
-    const { customerEmail, pointsToRedeem, qrCodeData, customerUserId } = req.body;
-    const businessId = req.params.businessId;
+    const { pointsToRedeem, poolType, qrCodeData } = req.body;
+    const userId = req.user.user_id;
 
-    // Verify business exists and user has access
-    const business = await Business.findByPk(businessId);
-    if (!business || business.userId !== req.user.user_id) {
-      return res.status(HTTP_STATUS_CODE.FORBIDDEN).json({
-        status: false,
-        status_msg: 'Access denied',
-        data: undefined
-      });
-    }
-
-    // Get loyalty program configuration
-    const loyaltyProgram = await LoyaltyProgram.findOne({ where: { businessId } });
-    if (!loyaltyProgram) {
-      return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
-        status: false,
-        status_msg: 'Loyalty program not configured',
-        data: undefined
-      });
-    }
-
-    // Get customer's loyalty points
+    // Find loyalty points record
     const loyaltyPoints = await LoyaltyPoints.findOne({
-      where: { userId: customerUserId, businessId, poolType: 'individualBusiness' }
+      where: { 
+        userId, 
+        poolType,
+        businessUserId: poolType === 'business' ? req.body.businessUserId : null
+      }
     });
 
     if (!loyaltyPoints || parseFloat(loyaltyPoints.pointsAvailable) < pointsToRedeem) {
       return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
         status: false,
-        status_msg: 'Insufficient points available',
+        status_msg: 'Insufficient points available for redemption',
         data: undefined
       });
     }
 
-    // Calculate redeemed amount
-    const redeemedAmount = pointsToRedeem * loyaltyProgram.pointToValueRatio;
-
     // Create transaction
     const transaction = await Transaction.create({
       transactionId: generateTransactionId(),
-      userId: customerUserId,
-      businessId,
+      userId,
+      businessUserId: poolType === 'business' ? req.body.businessUserId : null,
       transactionType: 'redeem',
-      poolType: 'individualBusiness',
+      poolType,
       pointsAmount: pointsToRedeem,
-      cashAmount: redeemedAmount,
-      description: `Points redeemed at ${business.businessName}`,
+      description: `Points redeemed from ${poolType} pool`,
       qrCodeData,
       status: 'completed'
     });
@@ -187,21 +139,21 @@ const redeemPoints = async (req, res) => {
       status_msg: 'Points redeemed successfully',
       data: {
         transaction,
-        redeemedAmount,
-        remainingPoints: parseFloat(loyaltyPoints.pointsAvailable) - pointsToRedeem
+        loyaltyPoints,
+        pointsRedeemed: pointsToRedeem
       }
     });
   } catch (error) {
-    console.error('Redeem points error:', error);
+    console.error('Error redeeming points:', error);
     res.status(HTTP_STATUS_CODE.INTERNAL_SERVER_ERROR).json({
       status: false,
-      status_msg: 'Internal server error',
+      status_msg: 'Failed to redeem points',
       data: undefined
     });
   }
 };
 
-// Gift Points (Screen 169 - Citizen User)
+// Gift Points (TownTicks pool only)
 const giftPoints = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -213,60 +165,63 @@ const giftPoints = async (req, res) => {
       });
     }
 
-    const { pointsToGift, recipientEmail, isNewUser, recipientUserId } = req.body;
+    const { pointsToGift, recipientUserId } = req.body;
+    const senderUserId = req.user.user_id;
 
-    // Verify sender has enough points in TownTicks pool
-    const senderPoints = await LoyaltyPoints.findOne({
-      where: { userId: req.user.user_id, poolType: 'townTicks' }
+    // Gifting only works with TownTicks pool
+    const poolType = 'townTicks';
+
+    // Check sender's TownTicks points
+    let senderLoyaltyPoints = await LoyaltyPoints.findOne({
+      where: { userId: senderUserId, poolType: 'townTicks' }
     });
 
-    if (!senderPoints || parseFloat(senderPoints.pointsAvailable) < pointsToGift) {
+    if (!senderLoyaltyPoints || parseFloat(senderLoyaltyPoints.pointsAvailable) < pointsToGift) {
       return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
         status: false,
-        status_msg: 'Insufficient points available in TownTicks pool',
+        status_msg: 'Insufficient TownTicks points available for gifting',
         data: undefined
       });
     }
 
-    // Create transaction
+    // Create gift transaction
     const transaction = await Transaction.create({
       transactionId: generateTransactionId(),
-      userId: req.user.user_id,
+      userId: senderUserId,
       transactionType: 'gift',
       poolType: 'townTicks',
       pointsAmount: pointsToGift,
-      description: `Points gifted to ${recipientEmail}`,
-      recipientEmail,
-      recipientUserId: recipientUserId || null,
+      description: `Points gifted to user ${recipientUserId}`,
+      recipientUserId,
       status: 'completed'
     });
 
     // Update sender's points
-    await senderPoints.update({
-      pointsGifted: parseFloat(senderPoints.pointsGifted) + pointsToGift,
-      pointsAvailable: parseFloat(senderPoints.pointsAvailable) - pointsToGift,
+    await senderLoyaltyPoints.update({
+      pointsGifted: parseFloat(senderLoyaltyPoints.pointsGifted) + pointsToGift,
+      pointsAvailable: parseFloat(senderLoyaltyPoints.pointsAvailable) - pointsToGift,
       lastUpdated: new Date()
     });
 
-    // Update or create recipient's TownTicks pool points
-    if (recipientUserId) {
-      let recipientPoints = await LoyaltyPoints.findOne({
-        where: { userId: recipientUserId, poolType: 'townTicks' }
-      });
+    // Update or create recipient's points
+    let recipientLoyaltyPoints = await LoyaltyPoints.findOne({
+      where: { userId: recipientUserId, poolType: 'townTicks' }
+    });
 
-      if (recipientPoints) {
-        await recipientPoints.update({
-          pointsAvailable: parseFloat(recipientPoints.pointsAvailable) + pointsToGift,
-          lastUpdated: new Date()
-        });
-      } else {
-        await LoyaltyPoints.create({
-          userId: recipientUserId,
-          poolType: 'townTicks',
-          pointsAvailable: pointsToGift,
-          lastUpdated: new Date()
-        });
-      }
+    if (recipientLoyaltyPoints) {
+      await recipientLoyaltyPoints.update({
+        pointsIssued: parseFloat(recipientLoyaltyPoints.pointsIssued) + pointsToGift,
+        pointsAvailable: parseFloat(recipientLoyaltyPoints.pointsAvailable) + pointsToGift,
+        lastUpdated: new Date()
+      });
+    } else {
+      recipientLoyaltyPoints = await LoyaltyPoints.create({
+        userId: recipientUserId,
+        poolType: 'townTicks',
+        pointsIssued: pointsToGift,
+        pointsAvailable: pointsToGift,
+        lastUpdated: new Date()
+      });
     }
 
     res.status(HTTP_STATUS_CODE.OK).json({
@@ -274,91 +229,93 @@ const giftPoints = async (req, res) => {
       status_msg: 'Points gifted successfully',
       data: {
         transaction,
-        giftedPoints: pointsToGift,
-        recipientEmail
+        senderPoints: senderLoyaltyPoints,
+        recipientPoints: recipientLoyaltyPoints,
+        pointsGifted: pointsToGift
       }
     });
   } catch (error) {
-    console.error('Gift points error:', error);
+    console.error('Error gifting points:', error);
     res.status(HTTP_STATUS_CODE.INTERNAL_SERVER_ERROR).json({
       status: false,
-      status_msg: 'Internal server error',
+      status_msg: 'Failed to gift points',
       data: undefined
     });
   }
 };
 
-// Transfer Points to TownTicks Pool
-const transferToTownTicks = async (req, res) => {
+// Transfer Points between pools
+const transferPoints = async (req, res) => {
   try {
-    const { businessId, pointsAmount } = req.body;
-
-    // Verify business exists and user has access
-    const business = await Business.findByPk(businessId);
-    if (!business || business.userId !== req.user.user_id) {
-      return res.status(HTTP_STATUS_CODE.FORBIDDEN).json({
-        status: false,
-        status_msg: 'Access denied',
-        data: undefined
-      });
-    }
-
-    // Check if business allows export to TownTicks
-    const loyaltyProgram = await LoyaltyProgram.findOne({ where: { businessId } });
-    if (!loyaltyProgram || !loyaltyProgram.allowTownTicksExport) {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
       return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
         status: false,
-        status_msg: 'Transfer to TownTicks pool is not allowed for this business',
-        data: undefined
+        status_msg: 'Validation errors',
+        data: errors.array()
       });
     }
 
-    // Get user's business pool points
-    const businessPoints = await LoyaltyPoints.findOne({
-      where: { userId: req.user.user_id, businessId, poolType: 'individualBusiness' }
+    const { pointsAmount, fromPoolType, toPoolType, businessUserId } = req.body;
+    const userId = req.user.user_id;
+
+    // Check source pool points
+    let sourceLoyaltyPoints = await LoyaltyPoints.findOne({
+      where: { 
+        userId, 
+        poolType: fromPoolType,
+        businessUserId: fromPoolType === 'business' ? businessUserId : null
+      }
     });
 
-    if (!businessPoints || parseFloat(businessPoints.pointsAvailable) < pointsAmount) {
+    if (!sourceLoyaltyPoints || parseFloat(sourceLoyaltyPoints.pointsAvailable) < pointsAmount) {
       return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
         status: false,
-        status_msg: 'Insufficient points in business pool',
+        status_msg: 'Insufficient points in source pool for transfer',
         data: undefined
       });
     }
 
-    // Create transaction
+    // Create transfer transaction
     const transaction = await Transaction.create({
       transactionId: generateTransactionId(),
-      userId: req.user.user_id,
-      businessId,
+      userId,
+      businessUserId: fromPoolType === 'business' ? businessUserId : null,
       transactionType: 'transfer',
-      poolType: 'townTicks',
+      poolType: fromPoolType,
       pointsAmount,
-      description: `Points transferred from ${business.businessName} to TownTicks pool`,
+      description: `Points transferred from ${fromPoolType} to ${toPoolType}`,
       status: 'completed'
     });
 
-    // Update business pool points
-    await businessPoints.update({
-      pointsTransferred: parseFloat(businessPoints.pointsTransferred) + pointsAmount,
-      pointsAvailable: parseFloat(businessPoints.pointsAvailable) - pointsAmount,
+    // Update source pool
+    await sourceLoyaltyPoints.update({
+      pointsTransferred: parseFloat(sourceLoyaltyPoints.pointsTransferred) + pointsAmount,
+      pointsAvailable: parseFloat(sourceLoyaltyPoints.pointsAvailable) - pointsAmount,
       lastUpdated: new Date()
     });
 
-    // Update or create TownTicks pool points
-    let townTicksPoints = await LoyaltyPoints.findOne({
-      where: { userId: req.user.user_id, poolType: 'townTicks' }
+    // Update or create destination pool
+    let destLoyaltyPoints = await LoyaltyPoints.findOne({
+      where: { 
+        userId, 
+        poolType: toPoolType,
+        businessUserId: toPoolType === 'business' ? businessUserId : null
+      }
     });
 
-    if (townTicksPoints) {
-      await townTicksPoints.update({
-        pointsAvailable: parseFloat(townTicksPoints.pointsAvailable) + pointsAmount,
+    if (destLoyaltyPoints) {
+      await destLoyaltyPoints.update({
+        pointsIssued: parseFloat(destLoyaltyPoints.pointsIssued) + pointsAmount,
+        pointsAvailable: parseFloat(destLoyaltyPoints.pointsAvailable) + pointsAmount,
         lastUpdated: new Date()
       });
     } else {
-      await LoyaltyPoints.create({
-        userId: req.user.user_id,
-        poolType: 'townTicks',
+      destLoyaltyPoints = await LoyaltyPoints.create({
+        userId,
+        poolType: toPoolType,
+        businessUserId: toPoolType === 'business' ? businessUserId : null,
+        pointsIssued: pointsAmount,
         pointsAvailable: pointsAmount,
         lastUpdated: new Date()
       });
@@ -366,17 +323,19 @@ const transferToTownTicks = async (req, res) => {
 
     res.status(HTTP_STATUS_CODE.OK).json({
       status: true,
-      status_msg: 'Points transferred to TownTicks pool successfully',
+      status_msg: 'Points transferred successfully',
       data: {
         transaction,
-        transferredPoints: pointsAmount
+        sourcePoints: sourceLoyaltyPoints,
+        destPoints: destLoyaltyPoints,
+        pointsTransferred: pointsAmount
       }
     });
   } catch (error) {
-    console.error('Transfer to TownTicks error:', error);
+    console.error('Error transferring points:', error);
     res.status(HTTP_STATUS_CODE.INTERNAL_SERVER_ERROR).json({
       status: false,
-      status_msg: 'Internal server error',
+      status_msg: 'Failed to transfer points',
       data: undefined
     });
   }
@@ -387,62 +346,21 @@ const getUserPoints = async (req, res) => {
   try {
     const userId = req.user.user_id;
 
-    // Get all points records for the user
-    const pointsRecords = await LoyaltyPoints.findAll({
+    const loyaltyPoints = await LoyaltyPoints.findAll({
       where: { userId },
-      include: [
-        {
-          model: Business,
-          as: 'business',
-          attributes: ['businessName', 'businessType']
-        }
-      ]
-    });
-
-    // Calculate totals
-    const totals = {
-      totalPointsAvailable: 0,
-      totalPointsIssued: 0,
-      totalPointsRedeemed: 0,
-      totalPointsTransferred: 0,
-      totalPointsGifted: 0,
-      totalPointsExpired: 0,
-      townTicksPool: 0,
-      businessPools: []
-    };
-
-    pointsRecords.forEach(record => {
-      totals.totalPointsAvailable += parseFloat(record.pointsAvailable || 0);
-      totals.totalPointsIssued += parseFloat(record.pointsIssued || 0);
-      totals.totalPointsRedeemed += parseFloat(record.pointsRedeemed || 0);
-      totals.totalPointsTransferred += parseFloat(record.pointsTransferred || 0);
-      totals.totalPointsGifted += parseFloat(record.pointsGifted || 0);
-      totals.totalPointsExpired += parseFloat(record.pointsExpired || 0);
-
-      if (record.poolType === 'townTicks') {
-        totals.townTicksPool = parseFloat(record.pointsAvailable || 0);
-      } else if (record.poolType === 'individualBusiness') {
-        totals.businessPools.push({
-          businessName: record.business?.businessName,
-          pointsAvailable: parseFloat(record.pointsAvailable || 0),
-          businessId: record.businessId
-        });
-      }
+      order: [['poolType', 'ASC'], ['createdAt', 'DESC']]
     });
 
     res.status(HTTP_STATUS_CODE.OK).json({
       status: true,
       status_msg: 'User points retrieved successfully',
-      data: {
-        totals,
-        details: pointsRecords
-      }
+      data: loyaltyPoints
     });
   } catch (error) {
-    console.error('Get user points error:', error);
+    console.error('Error getting user points:', error);
     res.status(HTTP_STATUS_CODE.INTERNAL_SERVER_ERROR).json({
       status: false,
-      status_msg: 'Internal server error',
+      status_msg: 'Failed to get user points',
       data: undefined
     });
   }
@@ -451,31 +369,45 @@ const getUserPoints = async (req, res) => {
 // Generate QR Code for Redemption
 const generateQRCode = async (req, res) => {
   try {
-    const { userId, businessId, pointsAmount } = req.body;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(HTTP_STATUS_CODE.BAD_REQUEST).json({
+        status: false,
+        status_msg: 'Validation errors',
+        data: errors.array()
+      });
+    }
 
+    const { pointsAmount, poolType, businessUserId } = req.body;
+    const userId = req.user.user_id;
+
+    // Create QR code data
     const qrData = {
       userId,
-      businessId,
+      businessUserId: poolType === 'business' ? businessUserId : null,
+      poolType,
       pointsAmount,
-      timestamp: Date.now(),
-      type: 'redemption'
+      timestamp: Date.now()
     };
 
-    const qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(qrData));
+    const qrCodeData = JSON.stringify(qrData);
+    const qrCodeImage = await QRCode.toDataURL(qrCodeData);
 
     res.status(HTTP_STATUS_CODE.OK).json({
       status: true,
       status_msg: 'QR code generated successfully',
       data: {
-        qrCode: qrCodeDataURL,
-        qrData
+        qrCodeData,
+        qrCodeImage,
+        pointsAmount,
+        poolType
       }
     });
   } catch (error) {
-    console.error('Generate QR code error:', error);
+    console.error('Error generating QR code:', error);
     res.status(HTTP_STATUS_CODE.INTERNAL_SERVER_ERROR).json({
       status: false,
-      status_msg: 'Internal server error',
+      status_msg: 'Failed to generate QR code',
       data: undefined
     });
   }
@@ -485,7 +417,7 @@ module.exports = {
   issuePoints,
   redeemPoints,
   giftPoints,
-  transferToTownTicks,
+  transferPoints,
   getUserPoints,
   generateQRCode
 }; 

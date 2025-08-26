@@ -9,10 +9,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Import routes
-const loyaltyPointsRoutes = require('./routes/loyaltyPointsRoutes');
+const pointsRoutes = require('./routes/pointsRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
 
 // Route middleware
-app.use('/api/loyalty-points', loyaltyPointsRoutes);
+app.use('/api/points', pointsRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -25,7 +27,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// QR Code viewer for testing (Screen 167)
+// QR Code viewer for testing
 app.get('/view-qr', (req, res) => {
     res.send(`
       <!DOCTYPE html>
@@ -98,7 +100,7 @@ app.get('/view-qr', (req, res) => {
               </div>
               
               <p>Paste the QR code data URL from your API response:</p>
-              <textarea id="qrData" placeholder="Paste the qrCode value here (should start with 'data:image/')..."></textarea>
+              <textarea id="qrData" placeholder="Paste the qrCodeImage value here (should start with 'data:image/')..."></textarea>
               <br>
               <button onclick="showQR()">Show QR Code</button>
               <div id="qrDisplay" class="qr-display"></div>

@@ -1,6 +1,6 @@
 const express = require('express');
 const dashboardController = require('../controllers/dashboardController');
-const { verifyToken, requireBusinessUser, requireCitizenUser, requireAdmin } = require('../middlewares/authMiddleware');
+const { verifyToken } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
@@ -9,13 +9,10 @@ router.use(verifyToken);
 
 // Routes
 
-// Get Business Dashboard Analytics (Screen 166) - Business users only
-router.get('/business/:businessId', requireBusinessUser, dashboardController.getBusinessDashboard);
+// Get User Dashboard Analytics
+router.get('/user', dashboardController.getUserDashboard);
 
-// Get Customer Dashboard Analytics - Citizen users only
-router.get('/customer', requireCitizenUser, dashboardController.getCustomerDashboard);
-
-// Get System-wide Analytics (Admin/Platform level) - Admin users only
-router.get('/system', requireAdmin, dashboardController.getSystemAnalytics);
+// Get System-wide Analytics (Admin only)
+router.get('/system', dashboardController.getSystemAnalytics);
 
 module.exports = router; 
