@@ -45,10 +45,9 @@ const getUserDashboard = async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
-    // Get all loyalty points records for this user
-    const loyaltyPointsRecords = await LoyaltyPoints.findAll({
-      where: { userId },
-      order: [['poolType', 'ASC']]
+    // Get loyalty points record for this user
+    const loyaltyPoints = await LoyaltyPoints.findOne({
+      where: { userId }
     });
 
     // Calculate analytics
@@ -59,12 +58,6 @@ const getUserDashboard = async (req, res) => {
       totalPointsGifted: 0,
       totalPointsExpired: 0,
       totalPointsAvailable: 0,
-      townTicksPool: {
-        pointsAvailable: 0,
-        pointsIssued: 0,
-        pointsRedeemed: 0
-      },
-      businessPools: [],
       recentTransactions: transactions.slice(0, 10),
       period: period,
       lastUpdated: new Date()
@@ -93,27 +86,10 @@ const getUserDashboard = async (req, res) => {
       }
     });
 
-    // Calculate from loyalty points records
-    loyaltyPointsRecords.forEach(record => {
-      const pointsAvailable = parseFloat(record.pointsAvailable || 0);
-      const pointsIssued = parseFloat(record.pointsIssued || 0);
-      const pointsRedeemed = parseFloat(record.pointsRedeemed || 0);
-
-      analytics.totalPointsAvailable += pointsAvailable;
-
-      if (record.poolType === 'townTicks') {
-        analytics.townTicksPool.pointsAvailable = pointsAvailable;
-        analytics.townTicksPool.pointsIssued = pointsIssued;
-        analytics.townTicksPool.pointsRedeemed = pointsRedeemed;
-      } else if (record.poolType === 'business') {
-        analytics.businessPools.push({
-          businessUserId: record.businessUserId,
-          pointsAvailable,
-          pointsIssued,
-          pointsRedeemed
-        });
-      }
-    });
+    // Get current points from loyalty points record
+    if (loyaltyPoints) {
+      analytics.totalPointsAvailable = parseFloat(loyaltyPoints.pointsAvailable || 0);
+    }
 
     res.status(HTTP_STATUS_CODE.OK).json({
       status: true,
